@@ -13,6 +13,11 @@ const PORT = 3000;
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// Handle favicon.ico to prevent 404 errors
+app.get('/favicon.ico', (_req, res) => {
+  res.status(204).end();
+});
+
 // Helper to initialize GenAI lazily
 function getGenAI() {
   const apiKey = process.env.GEMINI_API_KEY;
