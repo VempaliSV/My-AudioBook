@@ -80,9 +80,7 @@ export default function App() {
         }),
       });
 
-      if (!response.ok) {
-        throw new Error('Server failed to convert PDF.');
-      }
+      if (!response.ok) throw new Error('Server failed to convert PDF.');
 
       const parsedAudiobook: AudiobookMetaData = await response.json();
       setAudiobook(parsedAudiobook);
@@ -97,20 +95,70 @@ export default function App() {
         setProcessingStep('Extracting client-side text...');
         const extracted = await extractTextFromPdfFile(file);
 
-        // Call backend parse with rawText
-        setProcessingStep('Formatting chapters with Gemini AI...');
-        const response = await fetch('/api/parse-pdf', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            rawText: extracted.fullText,
-            fileName: file.name,
-          }),
-        });
+        let parsedAudiobook: AudiobookMetaData | null = null;
+        try {
+          setProcessingStep('Formatting chapters with Gemini AI...');
+          const response = await fetch('/api/parse-pdf', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              rawText: extracted.fullText,
+              fileName: file.name,
+            }),
+          });
 
-        if (!response.ok) throw new Error('Failed to parse text.');
+          if (response.ok) {
+            parsedAudiobook = await response.json();
+          }
+        } catch (apiErr) {
+          console.warn('Server API offline, constructing local client chapters:', apiErr);
+        }
 
-        const parsedAudiobook: AudiobookMetaData = await response.json();
+        if (!parsedAudiobook) {
+          // Construct client-side chapters if API is 404 or offline
+          const rawChunks = extracted.fullText.split(/\n\s*\n/).filter((c) => c.trim().length > 30);
+          const chunkSize = 6;
+          const chapters = [];
+          for (let i = 0; i < rawChunks.length; i += chunkSize) {
+            const chapParas = rawChunks.slice(i, i + chunkSize);
+            const chapNum = Math.floor(i / chunkSize) + 1;
+            const content = chapParas.join('\n\n');
+            chapters.push({
+              id: `chap-${chapNum}-${Date.now()}`,
+              number: chapNum,
+              title: `Chapter ${chapNum}`,
+              summary: chapParas[0].slice(0, 150) + '...',
+              content: content,
+              audioScript: content,
+              estimatedMinutes: Math.max(1, Math.ceil(content.split(/\s+/).length / 150)),
+              wordCount: content.split(/\s+/).length,
+              keyPoints: ['Client extracted section.'],
+            });
+          }
+
+          parsedAudiobook = {
+            title: file.name.replace(/\.[^/.]+$/, ''),
+            author: 'Uploaded Document',
+            overview: 'Parsed PDF content formatted for narration.',
+            suggestedVoiceTone: 'Studio Female Narrator',
+            totalChapters: chapters.length || 1,
+            totalPages: extracted.totalPages || 1,
+            totalWordCount: chapters.reduce((s, c) => s + c.wordCount, 0),
+            estimatedTotalMinutes: chapters.reduce((s, c) => s + c.estimatedMinutes, 0),
+            chapters: chapters.length > 0 ? chapters : [{
+              id: 'chap-1',
+              number: 1,
+              title: 'Chapter 1',
+              summary: 'Extracted content',
+              content: extracted.fullText,
+              audioScript: extracted.fullText,
+              estimatedMinutes: Math.max(1, Math.ceil(extracted.fullText.split(/\s+/).length / 150)),
+              wordCount: extracted.fullText.split(/\s+/).length,
+              keyPoints: ['Document text.'],
+            }],
+          };
+        }
+
         setAudiobook(parsedAudiobook);
         setCurrentChapterIndex(0);
         setIsUploadModalOpen(false);
@@ -130,18 +178,68 @@ export default function App() {
       setIsProcessingPdf(true);
       setProcessingStep('Analyzing text & generating audiobook chapters...');
 
-      const response = await fetch('/api/parse-pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          rawText: text,
-          fileName: title,
-        }),
-      });
+      let parsedAudiobook: AudiobookMetaData | null = null;
+      try {
+        const response = await fetch('/api/parse-pdf', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            rawText: text,
+            fileName: title,
+          }),
+        });
 
-      if (!response.ok) throw new Error('Failed to parse document text.');
+        if (response.ok) {
+          parsedAudiobook = await response.json();
+        }
+      } catch (err) {
+        console.warn('API route unavailable, formatting text locally:', err);
+      }
 
-      const parsedAudiobook: AudiobookMetaData = await response.json();
+      if (!parsedAudiobook) {
+        const paragraphs = text.split(/\n\s*\n/).filter((p) => p.trim().length > 0);
+        const chunkSize = 5;
+        const chapters = [];
+        for (let i = 0; i < paragraphs.length; i += chunkSize) {
+          const chapParas = paragraphs.slice(i, i + chunkSize);
+          const chapNum = Math.floor(i / chunkSize) + 1;
+          const content = chapParas.join('\n\n');
+          chapters.push({
+            id: `chap-${chapNum}-${Date.now()}`,
+            number: chapNum,
+            title: `Chapter ${chapNum}`,
+            summary: chapParas[0].slice(0, 150) + '...',
+            content: content,
+            audioScript: content,
+            estimatedMinutes: Math.max(1, Math.ceil(content.split(/\s+/).length / 150)),
+            wordCount: content.split(/\s+/).length,
+            keyPoints: ['Section text analysis.'],
+          });
+        }
+
+        parsedAudiobook = {
+          title: title || 'Custom Document',
+          author: 'Document Author',
+          overview: 'Custom text formatted into audiobook chapters.',
+          suggestedVoiceTone: 'Studio Female Narrator',
+          totalChapters: chapters.length || 1,
+          totalPages: 1,
+          totalWordCount: chapters.reduce((s, c) => s + c.wordCount, 0),
+          estimatedTotalMinutes: chapters.reduce((s, c) => s + c.estimatedMinutes, 0),
+          chapters: chapters.length > 0 ? chapters : [{
+            id: 'chap-1',
+            number: 1,
+            title: 'Chapter 1',
+            summary: 'Content summary',
+            content: text,
+            audioScript: text,
+            estimatedMinutes: Math.max(1, Math.ceil(text.split(/\s+/).length / 150)),
+            wordCount: text.split(/\s+/).length,
+            keyPoints: ['Full text.'],
+          }],
+        };
+      }
+
       setAudiobook(parsedAudiobook);
       setCurrentChapterIndex(0);
       setIsUploadModalOpen(false);
