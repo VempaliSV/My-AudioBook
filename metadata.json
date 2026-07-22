@@ -1,0 +1,8 @@
+{
+  "name": "PDF to Audiobook Studio",
+  "description": "Convert any PDF into a natural AI-narrated audiobook with chapter navigation, speech synthesis, and interactive reader.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
